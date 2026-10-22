@@ -1,34 +1,34 @@
 # Chasis: logs y health
 
-Librería compartida por pedidos y pagos de `EjercicioMonolitico`.
-Requiere Python 3.10 o superior.
+Librería compartida para microservicios FastAPI.
 
-- `configure_logging(nombre)`: configura los logs con el nombre del servicio.
-- `create_health_router(nombre)`: añade GET `/health`, que devuelve
-  `{"status":"ok","service":"nombre"}`. No comprueba la base de datos ni RabbitMQ.
+- **Repositorio del chasis:** [chasis_homework](https://github.com/Uthereted/chasis_homework).
+- **Repositorio del proyecto:** [EjercicioMonolitico](https://github.com/Uthereted/EjercicioMonolitico).
 
-Instalar desde esta carpeta:
+## Utilidades
 
-```bash
-python -m pip install .
-```
+- **Logs (`configure_logging`):** configura los mensajes de consola con fecha, nivel y nombre del servicio.
+- **Health (`create_health_router`):** añade `GET /health` para comprobar que el servicio responde e identificarlo. No comprueba la base de datos ni RabbitMQ.
 
-Uso:
+## Uso en los microservicios
+
+| Microservicio | Logs del chasis | Health del chasis |
+| --- | --- | --- |
+| Pedidos | Sí | Sí |
+| Pagos | Sí | Sí |
+| Clientes | No | No |
+| Máquinas | No | No |
+| Entregas | No | No |
+
+## Instalación
+
+Requiere Python 3.10 o superior. Los requisitos de pedidos y pagos instalan el paquete desde GitHub.
 
 ```python
-from fastapi import FastAPI
 from my_chassis import configure_logging, create_health_router
-
-configure_logging("order-service")
-app = FastAPI()
-app.include_router(create_health_router("order-service"))
 ```
 
-Mantener este repositorio junto a `EjercicioMonolitico`. Docker Compose lo
-instala al construir pedidos y pagos. Para aplicar cambios, desde ese proyecto:
+Para comprobarlo con el proyecto arrancado:
 
-```bash
-docker compose up -d --build order-service paymentservice
-```
-
-Comprobar http://localhost:13001/health y http://localhost:13006/health.
+- [Health de pedidos](http://localhost:13001/health).
+- [Health de pagos](http://localhost:13006/health).
