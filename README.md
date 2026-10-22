@@ -18,11 +18,11 @@ Librería compartida para microservicios FastAPI.
 | payment | Sí | Sí |
 | client | No | No |
 | machine | No | No |
-| delibery | No | No |
+| delivery | No | No |
 
 ## Instalación
 
-Requiere Python 3.10 o superior. Los requisitos de pedidos y pagos instalan el paquete desde GitHub.
+Requiere Python 3.10 o superior. Los requisitos de order y payment instalan el paquete desde GitHub.
 
 ```python
 from my_chassis import configure_logging, create_health_router
@@ -30,5 +30,5 @@ from my_chassis import configure_logging, create_health_router
 
 Para comprobarlo con el proyecto arrancado:
 
-- [Health de pedidos](http://localhost:13001/health).
-- [Health de pagos](http://localhost:13006/health).
+- [Health de order](http://localhost:13001/health).
+- [Health de payment](http://localhost:13006/health).
