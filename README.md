@@ -14,11 +14,11 @@ Librería compartida para microservicios FastAPI.
 
 | Microservicio | Logs del chasis | Health del chasis |
 | --- | --- | --- |
-| Pedidos | Sí | Sí |
-| Pagos | Sí | Sí |
-| Clientes | No | No |
-| Máquinas | No | No |
-| Entregas | No | No |
+| order | Sí | Sí |
+| payment | Sí | Sí |
+| client | No | No |
+| machine | No | No |
+| delibery | No | No |
 
 ## Instalación
 
