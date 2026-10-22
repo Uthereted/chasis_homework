@@ -1,10 +1,7 @@
-"""Configuración común de logs para consola."""
-
 import logging.config
 
 
 def configure_logging(service_name: str, level: str = "INFO") -> None:
-    """Configura el logger app y sus hijos sin desactivar los de otras librerías."""
     logging.config.dictConfig({
         "version": 1,
         "disable_existing_loggers": False,

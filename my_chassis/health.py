@@ -1,5 +1,3 @@
-"""Endpoint sencillo de disponibilidad HTTP."""
-
 from fastapi import APIRouter
 
 
