@@ -1,114 +1,55 @@
-# Chasis compartido para FastAPI
+# Chasis compartido para FastAPI — 0.5.0
 
-Librería de infraestructura reutilizable. Versión **0.4.0**, Python 3.10 o superior.
-
-- [Repositorio del chasis](https://github.com/Uthereted/chasis_homework).
-- [Proyecto consumidor](https://github.com/Uthereted/EjercicioMonolitico).
-
-## Utilidades y servicios que las usan
-
-| Utilidad | Servicios del proyecto |
-| --- | --- |
-| `configure_logging` | order y payment |
-| `create_health_router` | order y payment |
-| `create_db_dependency` | client, delivery, order y payment |
-| `publish_json_event` | order, payment y delivery |
-| `create_json_message` | Publicador de eventos pendientes de order |
-
-La verificación JWT se mantiene en el proyecto consumidor. El chasis no conoce
-los modelos, esquemas, nombres de colas ni reglas de negocio de los servicios.
+Librería de infraestructura reutilizable (Python >= 3.10). No contiene modelos
+ni decisiones de negocio de pedidos, pagos, fabricación o entregas.
 
 ## Instalación
 
-```bash
-pip install "microservice_chassis @ git+https://github.com/Uthereted/chasis_homework.git@main"
-```
+`pip install ".[auth,events,database]"` desde este repositorio.
+El proyecto consumidor incluye una wheel 0.5.0 probada para construcciones Docker
+reproducibles, sin depender de cambios posteriores en la rama main.
 
-Los servicios que publican eventos instalan el extra opcional `messaging`:
+## Utilidades
 
-```bash
-pip install "microservice_chassis[messaging] @ git+https://github.com/Uthereted/chasis_homework.git@main"
-```
-
-Git debe estar instalado, también dentro de las imágenes Docker que lo consuman.
-`database` no añade SQLAlchemy como dependencia: recibe la fábrica del servicio.
-
-## Logs y health
-
-```python
-from fastapi import FastAPI
-from my_chassis import configure_logging, create_health_router
-
-configure_logging("order-service")
-app = FastAPI()
-app.include_router(create_health_router("order-service"))
-```
-
-`GET /health` devuelve `{"status": "ok", "service": "order-service"}`.
-Comprueba que el servicio responde; no comprueba la base de datos ni RabbitMQ.
-
-## Sesiones por petición
+- `my_chassis.auth.JWTVerifier`: verificación RS256, emisor/audiencia configurables,
+  claims exp/iat/sub, caché de clave y recarga tras fallo de firma. Depende de una
+  función asíncrona que proporciona la clave. Devuelve 401 o 503 según el caso.
+- `my_chassis.keys`: validación RSA, carga desde el almacenamiento local y recepción
+  de claves en la misma transacción que el inbox.
+- `my_chassis.events.EventBus`: modelos de infraestructura Outbox/Inbox/SigningKey
+  creados sobre la Base del servicio, publicación confirmada, deduplicación y
+  consumo con reintentos. La sesión y las reglas de negocio pertenecen al servicio.
+  La implementación de outbox/inbox utiliza actualmente SQLite.
+- `my_chassis.messaging.TopicTransport`: conexión robusta, exchange topic y
+  suscripciones locales. No conoce colas ni topología de otros servicios.
+- `my_chassis.database.create_database` y `create_db_dependency`: motor/fábrica/Base
+  por servicio y cierre de sesiones por petición.
+- Logs, health y publicadores JSON anteriores se conservan por compatibilidad.
 
 ```python
-from fastapi import Depends
-from my_chassis.database import create_db_dependency
-from .sql.database import SessionLocal
+from my_chassis.events import EventBus
+from my_chassis.auth import JWTVerifier
+from my_chassis.keys import database_public_key_loader
 
-get_db = create_db_dependency(SessionLocal)
-
-@app.get("/example")
-async def example(db=Depends(get_db)):
-    ...  # Usar la sesión del servicio.
-```
-
-La dependencia abre una sesión mediante su contexto asíncrono y la cierra al
-finalizar, también si la petición falla. Cada servicio conserva su motor,
-configuración, modelos y decisiones de `commit`/`rollback`.
-
-## Publicación de eventos RabbitMQ
-
-```python
-from my_chassis.messaging import publish_json_event
-
-await publish_json_event(
-    rabbitmq_url="amqp://guest:guest@localhost/",
-    exchange_name="events",
-    routing_key="example.created",
-    queue_name="example.events",
-    payload={"id": 42},
-    message_id="example.created:42",
+bus = EventBus(Base, SessionLocal, service_name="example-service",
+               broker_url=broker_url, exchange_name="events")
+verifier = JWTVerifier(
+    key_loader=database_public_key_loader(SessionLocal, bus.SigningKey),
+    issuer="expected-issuer", audience="expected-audience",
 )
+# FastAPI: token_payload = Depends(verifier.verify_jwt)
+# Dentro de la transacción de negocio:
+# await bus.record_event(db, "entity.created", data, "entity.created:123")
+# await db.commit()
 ```
 
-La función abre una conexión robusta, declara un exchange `topic` duradero y
-una cola duradera, la enlaza antes de enviar y publica un mensaje JSON persistente
-con confirmación y `mandatory=True`. Usa un timeout de cinco segundos para conectar
-y publicar. Cierra la conexión al terminar y propaga los errores al servicio.
-
-`bindings=("example.approved", "example.rejected")` permite preparar varios enlaces
-para la misma cola; por defecto se enlaza la clave del mensaje publicado.
-
-Los reintentos y el estado de publicación permanecen en el servicio: marcar un
-evento como publicado solo después de que la llamada termine correctamente.
-Las confirmaciones no eliminan posibles duplicados; los consumidores deben seguir
-siendo idempotentes.
-
-Si el servicio ya mantiene una conexión abierta, puede construir solo el mensaje:
-
-```python
-from my_chassis.messaging import create_json_message
-
-message = create_json_message({"id": 42}, "example.created", "example.created:42")
-await exchange.publish(message, routing_key="example.created", mandatory=True, timeout=5)
-```
+`record_event` y la recepción de claves no hacen commits propios. El consumidor
+hace commit de estado, inbox y hechos derivados juntos. El publicador marca cada
+hecho solo tras confirmación; una reentrega se deduplica por event_id. El envelope
+incluye event_id, event_type, data y producer para auditoría independiente.
 
 ## Pruebas
 
-```bash
-pip install -e ".[messaging]" "httpx~=0.28"
-python -m unittest discover -s tests -v
-```
+`python -m unittest discover -s tests -v`
 
-Las pruebas comprueban el cierre de sesiones en peticiones correctas y fallidas,
-mensajes persistentes, confirmaciones, enlaces y propagación de errores de RabbitMQ.
-No requieren un broker ni una base de datos en ejecución.
+La CI ejecuta las pruebas de infraestructura y autenticación en Python 3.10 y 3.12.

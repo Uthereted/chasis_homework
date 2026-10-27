@@ -31,3 +31,23 @@ async def publish_json_event(rabbitmq_url, exchange_name, routing_key,
             create_json_message(payload, routing_key, message_id),
             routing_key=routing_key, mandatory=True, timeout=5,
         )
+
+
+class TopicTransport:
+    """Connection, exchange and local subscription setup without peer topology."""
+    def __init__(self, broker_url, exchange_name):
+        self.broker_url = broker_url
+        self.exchange_name = exchange_name
+
+    async def connect(self):
+        return await aio_pika.connect_robust(self.broker_url, timeout=5)
+
+    async def provision(self, channel):
+        return await channel.declare_exchange(self.exchange_name, aio_pika.ExchangeType.TOPIC, durable=True)
+
+    async def subscribe(self, channel, queue_name, topics):
+        exchange = await self.provision(channel)
+        queue = await channel.declare_queue(queue_name, durable=True)
+        for topic in topics:
+            await queue.bind(exchange, routing_key=topic)
+        return queue
