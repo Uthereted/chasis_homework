@@ -58,7 +58,17 @@ class EventBus:
         self.service_name = service_name
         self.key_event_type = key_event_type
         self.transport = TopicTransport(broker_url, exchange_name)
+        self._publisher_link = None
+        self._consumer_links = {}
         self.Outbox, self.Inbox, self.SigningKey = create_event_models(base)
+
+    @property
+    def available(self):
+        def connected(link):
+            return link is not None and not link[0].is_closed and not link[1].is_closed
+        return connected(self._publisher_link) and all(
+            connected(link) for link in self._consumer_links.values()
+        )
 
     async def provision(self, channel):
         return await self.transport.provision(channel)
@@ -92,12 +102,15 @@ class EventBus:
                 async with connection:
                     channel = await connection.channel(publisher_confirms=True, on_return_raises=True)
                     exchange = await self.provision(channel)
+                    self._publisher_link = (connection, channel)
                     while True:
                         await self.flush_outbox(exchange)
                         await asyncio.sleep(0.25)
             except Exception:
                 logger.exception("Event outbox publication pending; retrying")
                 await asyncio.sleep(2)
+            finally:
+                self._publisher_link = None
 
     async def dispatch(self, event_id, event_type, data, handler):
         async with self.session_factory() as db:
@@ -126,6 +139,7 @@ class EventBus:
             await message.ack()
 
     async def consume_events(self, queue_name, handler, *, topics):
+        self._consumer_links[queue_name] = None
         while True:
             try:
                 connection = await self.transport.connect()
@@ -134,8 +148,11 @@ class EventBus:
                     await channel.set_qos(prefetch_count=1)
                     queue = await self.subscribe(channel, queue_name, topics)
                     async with queue.iterator() as messages:
+                        self._consumer_links[queue_name] = (connection, channel)
                         async for message in messages:
                             await self.process_event(message, handler)
             except Exception:
                 logger.exception("Domain event consumer unavailable; retrying")
                 await asyncio.sleep(2)
+            finally:
+                self._consumer_links[queue_name] = None

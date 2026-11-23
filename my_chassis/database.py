@@ -17,3 +17,11 @@ def create_database(url, *, echo=False, expire_on_commit=False):
     sessions = sessionmaker(bind=engine, class_=AsyncSession, autocommit=False,
                             autoflush=False, expire_on_commit=expire_on_commit)
     return engine, sessions, declarative_base()
+
+
+async def database_ready(engine):
+    """Probe the service database from a background health monitor."""
+    from sqlalchemy import text
+    async with engine.connect() as connection:
+        result = await connection.execute(text('SELECT 1'))
+        return result.scalar() == 1

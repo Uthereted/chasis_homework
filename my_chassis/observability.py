@@ -99,30 +99,43 @@ class LogRuntime:
             with self.pending_lock:
                 self.pending.popleft()
 
+    async def refresh_health(self):
+        """Refresh cached health from the background monitor only."""
+        try:
+            if os.getenv('CONSUL_URL'):
+                url = await get_service_url(self.collector_service)
+            else:
+                url = os.getenv('LOG_AGGREGATOR_URL', f'https://{self.collector_service}:8000')
+            response = await self.http.get(
+                f'{url.rstrip("/")}/service/health',
+                extensions={'sni_hostname': self.collector_service} if url.startswith('https://') else {},
+            )
+            response.raise_for_status()
+            # Requests can read the previous health result while the probe is in flight.
+            # Only broker access and log publication need the shared lock.
+            async with self.lock:
+                await self.connect()
+                await self.flush()
+                self.checked_at = time.monotonic()
+                self.ready = True
+        except Exception as exc:
+            self.ready = False
+            raise LogUnavailable(UNAVAILABLE) from exc
+
     async def checkpoint(self, message=None):
-        """Check the collector and flush logs before admitting a new operation."""
-        if self.lock is None:
+        """Use cached health and publish logs without another health request."""
+        if self.lock is None or not self.available:
             raise LogUnavailable(UNAVAILABLE)
         async with self.lock:
+            if not self.available:
+                raise LogUnavailable(UNAVAILABLE)
             try:
-                if os.getenv('CONSUL_URL'):
-                    url = await get_service_url(self.collector_service)
-                else:
-                    url = os.getenv('LOG_AGGREGATOR_URL', f'https://{self.collector_service}:8000')
-                response = await self.http.get(
-                    f'{url.rstrip("/")}/service/health',
-                    extensions={'sni_hostname': self.collector_service} if url.startswith('https://') else {},
-                )
-                response.raise_for_status()
-                await self.connect()
                 if message:
                     logging.getLogger('application').info(message)
                 await self.flush()
             except Exception as exc:
                 self.ready = False
                 raise LogUnavailable(UNAVAILABLE) from exc
-            self.checked_at = time.monotonic()
-            self.ready = True
 
     async def wait_available(self, message=None):
         """Pause background operations, retrying without committing or acknowledging."""
@@ -136,7 +149,7 @@ class LogRuntime:
     async def monitor(self):
         while True:
             try:
-                await self.checkpoint()
+                await self.refresh_health()
             except LogUnavailable:
                 pass
             await asyncio.sleep(1)
