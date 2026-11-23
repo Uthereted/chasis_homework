@@ -2,9 +2,71 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
 import inspect
+import logging
+import os
+from datetime import datetime, timezone
 import time
 
 from fastapi import APIRouter, HTTPException
+
+
+class ResourceMonitor:
+    """Sample OS-visible resources periodically; HTTP only reads the snapshot."""
+    def __init__(self, *, interval=5, max_age=15, disk_path=None):
+        self.interval = interval
+        self.max_age = max_age
+        self.disk_path = disk_path or os.getenv('HEALTH_DISK_PATH', '/')
+        self.data = None
+        self.checked_at = 0
+        self.task = None
+
+    def collect(self):
+        import psutil
+        # The short blocking CPU sample runs in a worker thread, not in HTTP.
+        cpu = psutil.cpu_percent(interval=0.1)
+        memory = psutil.virtual_memory()
+        disk = psutil.disk_usage(self.disk_path)
+        return {
+            'sampled_at': datetime.now(timezone.utc).isoformat(),
+            'cpu_percent': cpu,
+            'memory': {'total_bytes': memory.total, 'available_bytes': memory.available,
+                       'used_percent': memory.percent},
+            'disk': {'path': self.disk_path, 'total_bytes': disk.total,
+                     'free_bytes': disk.free, 'used_percent': disk.percent},
+        }
+
+    async def refresh(self):
+        try:
+            self.data = await asyncio.to_thread(self.collect)
+            self.checked_at = time.monotonic()
+        except Exception:
+            self.data = None
+            logging.getLogger(__name__).warning('Resource sampling unavailable', exc_info=True)
+
+    async def run(self):
+        while True:
+            await asyncio.sleep(self.interval)
+            await self.refresh()
+
+    def snapshot(self):
+        if (self.task is None or self.task.done() or self.data is None
+                or time.monotonic() - self.checked_at >= self.max_age):
+            raise HTTPException(503, 'Resource snapshot unavailable')
+        return self.data
+
+    @asynccontextmanager
+    async def lifespan(self):
+        self.data = None
+        self.checked_at = 0
+        await self.refresh()
+        self.task = asyncio.create_task(self.run())
+        try:
+            yield
+        finally:
+            self.task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self.task
+            self.data = None
 
 
 class HealthMonitor:
@@ -58,14 +120,17 @@ async def mongodb_ready(client):
     return (await asyncio.to_thread(client.admin.command, 'ping'))['ok'] == 1
 
 
-def create_health_router(service_name: str, *, is_ready=None) -> APIRouter:
+def create_health_router(service_name: str, *, is_ready=None, resources=None) -> APIRouter:
     """Read cached readiness; dependency probes never run in this endpoint."""
     router = APIRouter(tags=['Health'])
 
     @router.get('/health')
-    async def health() -> dict[str, str]:
+    async def health() -> dict:
         if is_ready is not None and not is_ready():
             raise HTTPException(503, 'Service dependencies unavailable')
-        return {'status': 'ok', 'service': service_name}
+        result = {'status': 'ok', 'service': service_name}
+        if resources is not None:
+            result['resources'] = resources()
+        return result
 
     return router
