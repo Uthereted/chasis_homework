@@ -9,6 +9,13 @@ logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
 
 
+def get_bearer_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Read the original bearer token for forwarding after the route verifies it."""
+    if credentials is None:
+        raise HTTPException(401, 'Bearer token required', headers={'WWW-Authenticate': 'Bearer'})
+    return credentials.credentials
+
+
 class JWTVerifier:
     def __init__(self, *, key_loader, issuer, audience):
         self.key_loader = key_loader

@@ -72,3 +72,31 @@ async def registered_service(name, *, port=8000, health_path='/service/health'):
             logging.getLogger(__name__).warning(
                 "Could not deregister %s from Consul", service_id
             )
+
+
+async def query_service(name, path, *, access_token):
+    """Make an authenticated read through Consul discovery, directly to the service."""
+    import ssl
+    import httpx
+    from fastapi import HTTPException
+
+    try:
+        url = await get_service_url(name)
+        if not url.startswith('https://'):
+            raise ValueError('Service queries require HTTPS')
+        context = ssl.create_default_context(cafile=os.getenv('TLS_CA_FILE'))
+        async with httpx.AsyncClient(verify=context, trust_env=False, timeout=5) as client:
+            response = await client.get(
+                f'{url}{path}', headers={'Authorization': f'Bearer {access_token}'},
+                extensions={'sni_hostname': name},
+            )
+        if response.status_code in (401, 403, 404):
+            raise HTTPException(
+                response.status_code,
+                'Resource not found' if response.status_code == 404 else 'Query not authorized',
+                headers={'WWW-Authenticate': 'Bearer'} if response.status_code == 401 else None,
+            )
+        response.raise_for_status()
+        return response.json()
+    except (httpx.HTTPError, OSError, RuntimeError, ValueError, KeyError) as exc:
+        raise HTTPException(503, 'Service query unavailable') from exc

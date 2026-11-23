@@ -1,4 +1,4 @@
-# Chasis compartido para FastAPI — 0.7.0
+# Chasis compartido para FastAPI — 0.8.0
 
 Librería de infraestructura reutilizable (Python >= 3.10). No contiene modelos
 ni decisiones de negocio de pedidos, pagos, fabricación o entregas.
@@ -6,7 +6,7 @@ ni decisiones de negocio de pedidos, pagos, fabricación o entregas.
 ## Instalación
 
 `pip install ".[auth,events,database,observability]"` desde este repositorio.
-El proyecto consumidor incluye una wheel 0.7.0 para construcciones Docker
+El proyecto consumidor incluye una wheel 0.8.0 para construcciones Docker
 reproducibles, sin depender de cambios posteriores en la rama main.
 
 ## Utilidades
@@ -48,7 +48,7 @@ hace commit de estado, inbox y hechos derivados juntos. El publicador marca cada
 hecho solo tras confirmación; una reentrega se deduplica por event_id. El envelope
 incluye event_id, event_type, data y producer para auditoría independiente.
 
-## Descubrimiento y logs (0.7.0)
+## Descubrimiento y logs (0.8.0)
 
 - `my_chassis.discovery.registered_service(name, port=8000, health_path='/service/health')`:
   registra la instancia al entrar en el contexto y la da de baja al salir.
@@ -67,9 +67,9 @@ El extra `observability` instala las dependencias de logs, incluidos HTTPX y los
 La configuración del exchange y las rutas particulares pertenecen al consumidor.
 La función anterior `my_chassis.logging.configure_logging` se conserva sin cambios.
 
-Las pruebas de la versión 0.7.0 quedan pendientes de ejecución manual.
+Las pruebas de la versión 0.8.0 quedan pendientes de ejecución manual.
 
-## Estado de salud guardado (0.7.0)
+## Estado de salud guardado (0.8.0)
 
 El monitor consulta Consul y la salud del colector aproximadamente cada segundo.
 Las peticiones y operaciones del bus consultan el resultado guardado en memoria,
@@ -78,7 +78,7 @@ segundos, si falla el monitor o si se pierde la conexión al broker. Una petici�
 no renueva la fecha de la última comprobación. Se mantiene la publicación
 confirmada de logs; si falla, la operación sigue bloqueándose.
 
-## Readiness de dependencias (0.7.0)
+## Readiness de dependencias (0.8.0)
 
 `my_chassis.health.HealthMonitor` ejecuta comprobaciones en segundo plano y guarda
 sus resultados. `create_health_router(..., is_ready=lambda: monitor.available)`
@@ -89,6 +89,18 @@ El endpoint no consulta dependencias. El consumidor elige las comprobaciones.
 los consumidores, incluso cuando están reconectándose sin que la tarea termine.
 
 Las pruebas de readiness quedan pendientes de ejecución manual.
+
+## Consultas entre servicios (0.8.0)
+
+`my_chassis.discovery.query_service(name, path, access_token=...)` solo hace GET:
+consulta instancias sanas en Consul y llama directamente a la IP y puerto de la
+instancia. Verifica TLS con la CA y el nombre del servicio y reenvía el JWT original.
+No permite escribir ni requiere direcciones de otros servicios en el consumidor.
+El extra `discovery` instala HTTPX para esta función.
+`my_chassis.auth.get_bearer_token` obtiene el token para reenviarlo; las rutas deben
+seguir utilizando `JWTVerifier` para autenticarlo y sus permisos de negocio.
+
+Las comprobaciones de esta versión se ejecutan manualmente.
 
 ## Pruebas
 
