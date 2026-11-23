@@ -1,12 +1,12 @@
-# Chasis compartido para FastAPI — 0.5.0
+# Chasis compartido para FastAPI — 0.6.0
 
 Librería de infraestructura reutilizable (Python >= 3.10). No contiene modelos
 ni decisiones de negocio de pedidos, pagos, fabricación o entregas.
 
 ## Instalación
 
-`pip install ".[auth,events,database]"` desde este repositorio.
-El proyecto consumidor incluye una wheel 0.5.0 probada para construcciones Docker
+`pip install ".[auth,events,database,observability]"` desde este repositorio.
+El proyecto consumidor incluye una wheel 0.6.0 para construcciones Docker
 reproducibles, sin depender de cambios posteriores en la rama main.
 
 ## Utilidades
@@ -47,6 +47,27 @@ verifier = JWTVerifier(
 hace commit de estado, inbox y hechos derivados juntos. El publicador marca cada
 hecho solo tras confirmación; una reentrega se deduplica por event_id. El envelope
 incluye event_id, event_type, data y producer para auditoría independiente.
+
+## Descubrimiento y logs (0.6.0)
+
+- `my_chassis.discovery.registered_service(name, port=8000, health_path='/service/health')`:
+  registra la instancia al entrar en el contexto y la da de baja al salir.
+- `my_chassis.discovery.get_service_url(name)`: consulta en Consul una instancia sana.
+  Utiliza `CONSUL_URL`, `API_SCHEME` y la confianza TLS de `SSL_CERT_FILE`.
+- `my_chassis.observability.RabbitLogHandler`: mensajes estructurados publicados en RabbitMQ.
+- `my_chassis.observability.LogRuntime`: comprobación del colector, envío pendiente y pausa
+  de operaciones mientras el sistema de logs no está disponible. El exchange, el nombre
+  del colector y la URL del broker son configurables.
+- `my_chassis.observability.install_logging`: instala el handler y el middleware en FastAPI.
+  Sus rutas de salud exentas se pueden configurar con `health_paths`.
+- `my_chassis.observability.LoggedEventBus`: aplica la misma comprobación a las operaciones
+  del bus de eventos, sin incorporar reglas de negocio.
+
+El extra `observability` instala las dependencias de logs, incluidos HTTPX y los eventos.
+La configuración del exchange y las rutas particulares pertenecen al consumidor.
+La función anterior `my_chassis.logging.configure_logging` se conserva sin cambios.
+
+Las pruebas de la versión 0.6.0 quedan pendientes de ejecución manual.
 
 ## Pruebas
 
