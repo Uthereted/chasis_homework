@@ -33,6 +33,32 @@ async def publish_json_event(rabbitmq_url, exchange_name, routing_key,
         )
 
 
+class ExchangeRouter:
+    """Route facts, saga commands and replies through the existing outbox.
+
+    Reply destinations must be explicitly provisioned by the application.
+    Old outbox entries without response_exchange keep their original route.
+    """
+
+    def __init__(self, domain, saga, *, response_exchanges=None):
+        self.domain = domain
+        self.saga = saga
+        self.response_exchanges = response_exchanges
+
+    async def publish(self, message, *, routing_key, **kwargs):
+        exchange = self.domain
+        if routing_key.startswith("saga."):
+            exchange = self.saga
+            if self.response_exchanges is not None:
+                payload = json.loads(message.body)["data"]
+                if "response_exchange" in payload:
+                    requested = payload["response_exchange"]
+                    if not isinstance(requested, str) or requested not in self.response_exchanges:
+                        raise ValueError("Unsupported saga response exchange")
+                    exchange = self.response_exchanges[requested]
+        return await exchange.publish(message, routing_key=routing_key, **kwargs)
+
+
 class TopicTransport:
     """Connection, exchange and local subscription setup without peer topology."""
     def __init__(self, broker_url, exchange_name):

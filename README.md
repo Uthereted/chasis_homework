@@ -123,3 +123,13 @@ Las pruebas de esta versión quedan pendientes de ejecución manual.
 `python -m unittest discover -s tests -v`
 
 La CI ejecuta las pruebas de infraestructura y autenticación en Python 3.10 y 3.12.
+
+## Enrutamiento de respuestas de Saga (0.10.0)
+
+`my_chassis.messaging.ExchangeRouter` separa hechos y mensajes de Saga.
+Para respuestas recibe un mapa `response_exchanges` de destinos permitidos,
+ya declarados en el canal. Lee `data.response_exchange` del mensaje persistido
+y publica en el destino indicado, conservando las opciones de confirmación
+y entrega del outbox. Un destino desconocido produce error y no se marca
+como publicado. Solo los mensajes antiguos sin ese campo usan el destino
+de Saga anterior. Los comandos se publican en su exchange de comandos.

@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="microservice_chassis",
-    version="0.9.0",
+    version="0.10.0",
     packages=["my_chassis"],
     python_requires=">=3.10",
     extras_require={
